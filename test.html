@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sự cố Datafile trên Oracle RAC - Trải nghiệm tương tác</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Be Vietnam Pro', sans-serif;
+            background-color: #f1f5f9; /* Light theme: slate-100 */
+            color: #1e293b; /* slate-800 */
+        }
+        .card {
+            background-color: white;
+            border-radius: 1rem;
+            border: 1px solid #e2e8f0; /* slate-200 */
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            transition: all 0.3s ease-in-out;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+        }
+        .gradient-text {
+            background: linear-gradient(90deg, #4f46e5, #db2777);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .code-block {
+            background-color: #e2e8f0; /* slate-200 */
+            border-left: 4px solid #4f46e5;
+            color: #1e293b;
+        }
+        .tab-active {
+            background-color: #4f46e5;
+            color: white;
+            border-bottom: 2px solid transparent;
+        }
+        .tab-inactive {
+            background-color: transparent;
+            color: #475569; /* slate-600 */
+            border-bottom: 2px solid #cbd5e1; /* slate-300 */
+        }
+        #rac-diagram svg .node-rect { transition: all 0.5s ease; }
+        #rac-diagram svg .connection { transition: stroke 0.5s ease, stroke-dasharray 0.5s ease; }
+        .section-fade-in {
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+        }
+        .section-fade-in.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .interactive-card { cursor: pointer; }
+        .log-line {
+            opacity: 0;
+            animation: slide-in 0.5s forwards;
+        }
+        @keyframes slide-in {
+            from { transform: translateX(-20px); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        /* New for wow: Confetti canvas */
+        #confetti-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1000;
+        }
+        /* Animate bars */
+        .bar-fill {
+            animation: grow-bar 1.5s ease-out forwards;
+        }
+        @keyframes grow-bar {
+            from { width: 0%; }
+            to { width: var(--width); }
+        }
+        /* New: Enhanced animations for details */
+        .detail-expand {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.5s ease-out;
+        }
+        .detail-expand.open {
+            max-height: 1000px; /* Arbitrary large value */
+        }
+        /* Pulse for interactive elements */
+        .pulse-hover:hover {
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+    </style>
+</head>
+<body class="antialiased">
+    <div class="container mx-auto p-4 md:p-8">
+
+        <!-- Header -->
+        <header class="text-center mb-12 md:mb-20">
+            <h1 class="text-4xl md:text-6xl font-bold mb-4">
+                <span class="gradient-text">Sự Cố Datafile</span> trong Oracle RAC
+            </h1>
+            <p class="text-lg md:text-xl text-slate-600 max-w-3xl mx-auto">
+                Một phân tích trực quan về lỗi "kinh điển" khi đặt datafile sai chỗ và cách xử lý chuyên nghiệp.
+            </p>
+        </header>
+
+        <!-- Interactive Diagram -->
+        <section id="rac-diagram" class="section-fade-in mb-16 text-center">
+            <h2 class="text-2xl md:text-3xl font-bold mb-6">Mô Phỏng Kiến Trúc RAC</h2>
+            <div class="bg-white p-4 md:p-6 rounded-2xl border border-slate-200 shadow-xl inline-block">
+                <svg width="100%" viewBox="0 0 800 450" id="rac-svg">
+                    <defs>
+                        <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#2563eb" /></marker>
+                        <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="5.5" result="coloredBlur"/><feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+                    </defs>
+                    <g id="node1" class="node"><rect class="node-rect" x="50" y="50" width="150" height="80" rx="10" fill="#e2e8f0" stroke="#4f46e5" stroke-width="2"/><text x="125" y="80" font-family="monospace" font-size="16" fill="#1e293b" text-anchor="middle">RAC Node 1</text><text x="125" y="105" font-family="monospace" font-size="14" fill="#475569" text-anchor="middle">Instance 1</text></g>
+                    <g id="node2" class="node"><rect class="node-rect" x="600" y="50" width="150" height="80" rx="10" fill="#e2e8f0" stroke="#4f46e5" stroke-width="2"/><text x="675" y="80" font-family="monospace" font-size="16" fill="#1e293b" text-anchor="middle">RAC Node 2</text><text x="675" y="105" font-family="monospace" font-size="14" fill="#475569" text-anchor="middle">Instance 2</text></g>
+                    <g id="asm-storage" class="storage"><rect x="250" y="300" width="300" height="100" rx="10" fill="#d1fae5" stroke="#059669" stroke-width="2"/><text x="400" y="330" font-family="monospace" font-size="18" fill="#064e3b" text-anchor="middle">Shared Storage (ASM)</text><text x="400" y="355" font-family="monospace" font-size="14" fill="#047857" text-anchor="middle">+DATA Diskgroup</text></g>
+                    <g id="asm-datafile" class="datafile"><rect x="360" y="365" width="80" height="25" rx="5" fill="#6ee7b7"/><text x="400" y="382" font-family="monospace" font-size="12" fill="#065f46" text-anchor="middle">data.dbf</text></g>
+                    <path id="conn1-asm" class="connection" d="M 125 130 Q 250 220 380 295" stroke="#60a5fa" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+                    <path id="conn2-asm" class="connection" d="M 675 130 Q 550 220 420 295" stroke="#60a5fa" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+                    <g id="local-datafile" class="datafile" opacity="0" transform="translate(0, 20)"><rect x="50" y="180" width="150" height="50" rx="5" fill="#e2e8f0"/><text x="125" y="200" font-family="monospace" font-size="14" fill="#1e293b" text-anchor="middle">Local File System</text><text x="125" y="220" font-family="monospace" font-size="12" fill="#475569" text-anchor="middle">/u01/datafile/new.dbf</text></g>
+                    <path id="conn1-local" class="connection" d="M 125 130 V 175" stroke="#10b981" stroke-width="2.5" fill="none" marker-end="url(#arrow)" opacity="0"/>
+                    <path id="conn2-local" class="connection" d="M 675 130 C 400 130, 400 200, 190 200" stroke="#ef4444" stroke-width="2.5" stroke-dasharray="8 4" fill="none" opacity="0"/>
+                    <text id="error-symbol" x="650" y="160" font-size="40" fill="#ef4444" opacity="0">❌</text>
+                </svg>
+            </div>
+            <div class="mt-6 flex justify-center gap-4"><button id="simulate-error-btn" class="px-6 py-3 font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 transition-all transform hover:scale-105 shadow-lg shadow-red-600/30">Mô phỏng lỗi</button><button id="reset-btn" class="px-6 py-3 font-semibold text-slate-700 bg-slate-300 rounded-lg hover:bg-slate-400 transition-all">Reset</button><button id="fix-btn" class="px-6 py-3 font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 transition-all transform hover:scale-105 shadow-lg shadow-green-600/30 hidden">Sửa lỗi (Kéo file sang ASM)</button></div>
+            <p id="diagram-status" class="mt-4 text-lg text-green-600 transition-colors duration-500">Trạng thái: Hệ thống hoạt động bình thường.</p>
+        </section>
+
+        <!-- Consequences with Expanded Details -->
+        <section id="consequences" class="section-fade-in mb-16">
+            <h2 class="text-2xl md:text-3xl font-bold mb-8 text-center"><i data-lucide="alert-triangle" class="w-8 h-8 mr-3 inline-block text-amber-500"></i>Hệ Quả Nghiêm Trọng (Click để xem chi tiết)</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div class="card p-6 interactive-card pulse-hover" onclick="toggleDetail(1)"><div class="flex items-center mb-3"><i data-lucide="git-compare" class="w-8 h-8 text-red-500 mr-4"></i><h3 class="text-xl font-semibold">Không đồng bộ I/O</h3></div><p class="text-slate-500">Chỉ instance trên nút vừa tạo “nhìn thấy” file; các instance khác báo lỗi <strong>ORA‑01157</strong> (cannot identify/lock data file) và <strong>ORA‑01110</strong> (data file xxx) trong alert log. ([oraclenext.com][1])</p><div id="detail-1" class="detail-expand mt-2 text-sm text-slate-600">Triệu chứng: Các node khác không thể truy cập, dẫn đến inconsistency. Tham khảo thêm từ Oracle Forums về case thực tế.</div></div>
+                <div class="card p-6 interactive-card pulse-hover" onclick="toggleDetail(2)"><div class="flex items-center mb-3"><i data-lucide="lock" class="w-8 h-8 text-orange-500 mr-4"></i><h3 class="text-xl font-semibold">Khoá/treo giao dịch</h3></div><p class="text-slate-500">Những phiên giao dịch truy cập tablespace chứa datafile bị kẹt; có thể kèm <strong>ORA‑00376: file xxx cannot be read at this time</strong>.</p><div id="detail-2" class="detail-expand mt-2 text-sm text-slate-600">Chi tiết: Session hang, cần kill manual nếu không fix kịp. Ảnh hưởng performance toàn hệ thống.</div></div>
+                <div class="card p-6 interactive-card pulse-hover" onclick="toggleDetail(3)"><div class="flex items-center mb-3"><i data-lucide="database-backup" class="w-8 h-8 text-blue-500 mr-4"></i><h3 class="text-xl font-semibold">Mất khả năng Recovery</h3></div><p class="text-slate-500">Nếu datafile tiếp tục nhận ghi, quá trình recovery hay standby apply trên các nút/standby DB sẽ thất bại vì không tìm thấy file được chia sẻ.</p><div id="detail-3" class="detail-expand mt-2 text-sm text-slate-600">Thêm: Có thể dẫn đến data corruption nếu force recovery. Best practice: Luôn backup trước khi fix.</div></div>
+                <div class="card p-6 interactive-card pulse-hover" onclick="toggleDetail(4)"><div class="flex items-center mb-3"><i data-lucide="server-crash" class="w-8 h-8 text-pink-600 mr-4"></i><h3 class="text-xl font-semibold">Nguy cơ Outage</h3></div><p class="text-slate-500">Một số hãng vận hành đã ghi nhận “typo” này gây gián đoạn SX vài giờ do phải shutdown để sửa. ([Oracle Forums][2])</p><div id="detail-4" class="detail-expand mt-2 text-sm text-slate-600">Case thực tế: Downtime lên đến nửa ngày nếu không detect sớm. Tác động kinh doanh lớn.</div></div>
+            </div>
+            <!-- Animated Pie Chart for Consequences -->
+            <div class="mt-8 card max-w-2xl mx-auto p-6">
+                <h3 class="text-lg font-bold text-center mb-4">Phân Bổ Mức Độ Nghiêm Trọng Của Hệ Quả</h3>
+                <canvas id="consequences-chart" height="300"></canvas>
+                <p class="text-sm text-center mt-4 text-slate-500">Di chuột vào để xem chi tiết. Biểu đồ chỉ mang tính minh họa.</p>
+            </div>
+        </section>
+
+        <!-- Detection with More Details -->
+        <section id="detection" class="section-fade-in mb-16">
+            <h2 class="text-2xl md:text-3xl font-bold mb-8 text-center"><i data-lucide="search" class="w-8 h-8 mr-3 inline-block text-cyan-500"></i>Trải Nghiệm Tương Tác: Phát Hiện Lỗi</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8 items-start">
+                <div class="card p-6">
+                    <h3 class="text-lg font-semibold mb-3 flex items-center"><i data-lucide="database" class="w-5 h-5 mr-2 text-cyan-500"></i>1. Truy Vấn Control File/gv$datafile</h3>
+                    <p class="text-slate-500 mb-4">Chạy câu lệnh để lọc file không nằm trên ASM. Kết quả sẽ hiển thị path local như /u01/datafile.</p>
+                    <div class="code-block rounded-lg p-4 mb-4"><pre><code class="language-sql text-sm">SELECT inst_id, file#, name, status
+FROM   gv$datafile
+WHERE  name NOT LIKE '+%';  -- lọc file không nằm trên ASM</code></pre></div>
+                    <button onclick="runQuerySimulation()" class="w-full px-4 py-2 font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-all">Chạy truy vấn</button>
+                    <div id="query-result" class="hidden mt-4 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                        <p class="font-semibold mb-2">Kết quả:</p>
+                        <table class="w-full text-sm text-left">
+                            <thead class="bg-slate-200"><tr><th class="p-2">INST_ID</th><th class="p-2">FILE#</th><th class="p-2">NAME</th><th class="p-2">STATUS</th></tr></thead>
+                            <tbody><tr class="bg-white"><td class="p-2">1</td><td class="p-2">18</td><td class="p-2 font-mono">+DATA/DB/data.dbf</td><td class="p-2 text-green-600">ONLINE</td></tr><tr class="bg-red-100 animate-pulse"><td class="p-2 font-bold text-red-700">1</td><td class="p-2 font-bold text-red-700">25</td><td class="p-2 font-mono font-bold text-red-700">/u01/datafile/new.dbf</td><td class="p-2 font-bold text-red-700">RECOVER</td></tr><tr class="bg-white"><td class="p-2">2</td><td class="p-2">18</td><td class="p-2 font-mono">+DATA/DB/data.dbf</td><td class="p-2 text-green-600">ONLINE</td></tr></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="card p-6">
+                    <h3 class="text-lg font-semibold mb-3 flex items-center"><i data-lucide="file-text" class="w-5 h-5 mr-2 text-cyan-500"></i>2. Xem Alert Log & CRS Alert</h3>
+                    <p class="text-slate-500 mb-4">Tìm chuỗi `ORA-01157`, `ORA-01110`. ([oraclenext.com][1]) Log sẽ hiển thị lỗi không tìm thấy file trên node khác.</p>
+                    <button onclick="tailLogSimulation()" class="w-full px-4 py-2 font-semibold text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 transition-all">Xem Alert Log</button>
+                    <div id="log-viewer" class="mt-4 p-3 bg-black text-white rounded-lg font-mono text-sm h-32 overflow-y-auto">
+                        <p class="text-gray-400">-- Waiting for events --</p>
+                    </div>
+                </div>
+                <div class="card p-6">
+                    <h3 class="text-lg font-semibold mb-3 flex items-center"><i data-lucide="terminal" class="w-5 h-5 mr-2 text-cyan-500"></i>3. OS Check</h3>
+                    <p class="text-slate-500 mb-4">Trên các nút khác, chạy `ls /u01/datafile/xxx.dbf` – file sẽ “không tồn tại”. Điều này xác nhận vấn đề local FS.</p>
+                    <button onclick="osCheckSimulation()" class="w-full px-4 py-2 font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700 transition-all">Chạy OS Check</button>
+                    <div id="os-result" class="hidden mt-4 p-4 bg-slate-50 rounded-lg border border-slate-200 text-red-600 font-mono">ls: cannot access '/u01/datafile/xxx.dbf': No such file or directory</div>
+                </div>
+            </div>
+        </section>
+        
+        <!-- Downtime Chart -->
+        <section class="section-fade-in mb-16">
+            <h2 class="text-2xl md:text-3xl font-bold mb-8 text-center"><i data-lucide="bar-chart-3" class="w-8 h-8 mr-3 inline-block text-violet-500"></i>Biểu Đồ So Sánh Giải Pháp</h2>
+            <div class="card max-w-2xl mx-auto p-6">
+                <h3 class="text-lg font-bold text-center mb-4">Thời gian gián đoạn (Downtime) ước tính</h3>
+                <canvas id="downtime-chart-canvas" height="200"></canvas>
+                <p class="text-sm text-center mt-4 text-slate-500">Di chuột vào để xem chi tiết. Biểu đồ chỉ mang tính minh họa. ([DBACLASS][3])</p>
+            </div>
+        </section>
+
+        <!-- Resolution with Detailed Steps -->
+        <section id="resolution" class="section-fade-in mb-16">
+            <h2 class="text-2xl md:text-3xl font-bold mb-8 text-center"><i data-lucide="wrench" class="w-8 h-8 mr-3 inline-block text-green-500"></i>Quy Trình Xử Lý An Toàn (Không cần downtime dài)</h2>
+            <div class="max-w-4xl mx-auto">
+                <p class="text-center text-slate-600 mb-6">Kể từ <strong>12c</strong> bạn có thể “online move”; bản cũ hơn cần offline datafile hoặc dùng RMAN/ASMCMD. ([DBACLASS][3])</p>
+                <div class="flex justify-center mb-6"><button id="tab-12c" class="tab-btn tab-active px-6 py-3 text-lg font-semibold transition-colors duration-300 rounded-t-lg">⚡ Online (12c+)</button><button id="tab-pre12c" class="tab-btn tab-inactive px-6 py-3 text-lg font-semibold transition-colors duration-300 rounded-t-lg">🔁 Trước 12c hoặc kiểm soát chặt</button></div>
+                <div id="content-12c" class="tab-content card p-6"><p class="text-slate-600 mb-4">Oracle tự copy, update controlfile và vẫn cho phép DML hầu như không gián đoạn. ([Ron Ekins' Tech Blog][5])</p><div class="code-block rounded-lg p-4 relative"><button onclick="copyCode(this)" class="absolute top-2 right-2 p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-300 rounded-md"><i data-lucide="copy" class="w-4 h-4"></i></button><pre><code class="language-sql text-sm">ALTER DATABASE MOVE DATAFILE
+  '/u01/datafile/foo01.dbf'
+  TO '+DATA';</code></pre></div></div>
+                <div id="content-pre12c" class="tab-content hidden card p-6"><p class="text-slate-600 mb-4">Thực hiện theo bảng dưới, với RMAN để an toàn. ([DBA Knowledge Base][4]) Click vào bước để hoàn tất và xem animation.</p>
+                    <div class="space-y-4" id="offline-steps">
+                        <!-- Steps generated by JS, with more details -->
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Prevention with Details -->
+        <section id="prevention" class="section-fade-in mb-16">
+            <h2 class="text-2xl md:text-3xl font-bold mb-8 text-center"><i data-lucide="shield-check" class="w-8 h-8 mr-3 inline-block text-teal-500"></i>Phòng Ngừa Để Không “Vấp” Lần Nữa</h2>
+            <div class="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="flex items-center card p-4 pulse-hover"><i data-lucide="settings-2" class="w-10 h-10 text-teal-500 mr-4 flex-shrink-0"></i><div><h4 class="font-semibold">Thiết lập OMF + ASM mặc định</h4><p class="text-sm text-slate-500">`db_create_file_dest='+DATA'` giúp mọi lệnh `ADD DATAFILE` không cần chỉ rõ đường dẫn, tránh sai lầm.</p></div></div>
+                <div class="flex items-center card p-4 pulse-hover"><i data-lucide="file-code" class="w-10 h-10 text-teal-500 mr-4 flex-shrink-0"></i><div><h4 class="font-semibold">Profile SQL*Plus / scripts</h4><p class="text-sm text-slate-500">Ép biến `$ORACLE_SID`, prompt cảnh báo khi đường dẫn không bắt đầu bằng `+`. Sử dụng script template để standardize.</p></div></div>
+                <div class="flex items-center card p-4 pulse-hover"><i data-lucide="users" class="w-10 h-10 text-teal-500 mr-4 flex-shrink-0"></i><div><h4 class="font-semibold">Quy trình 4‑mắt</h4><p class="text-sm text-slate-500">Bám tiêu chuẩn DevOps: PR/Code‑review cho script DDL, đảm bảo không typo trong production.</p></div></div>
+                <div class="flex items-center card p-4 pulse-hover"><i data-lucide="bell-ring" class="w-10 h-10 text-teal-500 mr-4 flex-shrink-0"></i><div><h4 class="font-semibold">Giám sát Alert/Trace</h4><p class="text-sm text-slate-500">Đặt rule bắt <strong>ORA‑01157</strong>, gửi page trong 1‑2 phút để phát hiện sớm.</p></div></div>
+            </div>
+        </section>
+
+        <!-- Interactive Quiz for Delight -->
+        <section id="quiz" class="section-fade-in mb-16">
+            <h2 class="text-2xl md:text-3xl font-bold mb-8 text-center"><i data-lucide="brain" class="w-8 h-8 mr-3 inline-block text-purple-500"></i>Kiểm Tra Kiến Thức: Bạn Sẽ Làm Gì Đầu Tiên?</h2>
+            <div class="card max-w-2xl mx-auto p-6">
+                <p class="text-slate-600 mb-4">Chọn câu trả lời đúng để nhận "phần thưởng" bất ngờ!</p>
+                <div class="space-y-4">
+                    <button onclick="answerQuiz(1)" class="w-full px-4 py-2 text-left bg-slate-100 hover:bg-slate-200 rounded-lg transition-all">A. Shutdown toàn bộ RAC</button>
+                    <button onclick="answerQuiz(2)" class="w-full px-4 py-2 text-left bg-slate-100 hover:bg-slate-200 rounded-lg transition-all">B. Kiểm tra alert log và gv$datafile</button>
+                    <button onclick="answerQuiz(3)" class="w-full px-4 py-2 text-left bg-slate-100 hover:bg-slate-200 rounded-lg transition-all">C. Xóa datafile ngay lập tức</button>
+                    <button onclick="answerQuiz(4)" class="w-full px-4 py-2 text-left bg-slate-100 hover:bg-slate-200 rounded-lg transition-all">D. Không làm gì, tự khắc phục</button>
+                </div>
+                <p id="quiz-result" class="mt-4 text-center font-bold hidden"></p>
+            </div>
+        </section>
+
+        <footer class="text-center border-t border-slate-200 pt-8 mt-12"><h2 class="text-2xl font-bold mb-4 gradient-text">TL;DR - Tóm Lại</h2><ul class="list-disc list-inside max-w-2xl mx-auto text-left space-y-2 text-slate-600"><li><strong class="text-red-600">Sự cố:</strong> Các instance khác báo ORA‑01157/01110, tablespace gián đoạn vì file chỉ tồn tại cục bộ.</li><li><strong class="text-cyan-600">Phát hiện:</strong> alert log, `gv$datafile`, kiểm tra OS.</li><li><strong class="text-green-600">Khắc phục:</strong> `alter database move datafile …` (12c+), hoặc offline‑copy‑rename‑recover (≤11g/RMAN).</li><li><strong class="text-teal-600">Phòng ngừa:</strong> OMF, script review, giám sát lỗi.</li></ul><p class="mt-4 text-sm">Ứng viên nên mô tả rõ <strong>kế hoạch rollback, online migration và lessons learned</strong> chứ không chỉ nêu lệnh kỹ thuật.</p></footer>
+    </div>
+
+    <!-- Modal for Consequences -->
+    <div id="consequence-modal" class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 hidden z-50" onclick="closeModal()">
+        <div class="card w-full max-w-lg p-6" onclick="event.stopPropagation()">
+            <div class="flex justify-between items-center mb-4">
+                <h3 id="modal-title" class="text-2xl font-bold gradient-text"></h3>
+                <button onclick="closeModal()" class="text-slate-500 hover:text-slate-800"><i data-lucide="x" class="w-6 h-6"></i></button>
+            </div>
+            <p id="modal-content" class="text-slate-600"></p>
+            <div id="modal-details" class="mt-4 p-3 bg-slate-100 rounded-lg font-mono text-sm"></div>
+        </div>
+    </div>
+
+    <canvas id="confetti-canvas"></canvas>
+
+    <script>
+        lucide.createIcons();
+
+        // --- Global Elements ---
+        const simulateBtn = document.getElementById('simulate-error-btn');
+        const resetBtn = document.getElementById('reset-btn');
+        const fixBtn = document.getElementById('fix-btn');
+        const diagramStatus = document.getElementById('diagram-status');
+        const localDatafile = document.getElementById('local-datafile');
+        const conn1Local = document.getElementById('conn1-local');
+        const conn2Local = document.getElementById('conn2-local');
+        const errorSymbol = document.getElementById('error-symbol');
+        const node2Rect = document.getElementById('node2').querySelector('.node-rect');
+        const asmStorage = document.getElementById('asm-storage');
+
+        // --- Interactive Diagram Logic ---
+        function resetToNormalState() {
+            localDatafile.style.opacity = '0';
+            localDatafile.style.transform = 'translateY(20px)';
+            conn1Local.style.opacity = '0';
+            conn2Local.style.opacity = '0';
+            errorSymbol.style.opacity = '0';
+            node2Rect.style.filter = 'none';
+            node2Rect.style.stroke = '#4f46e5';
+            diagramStatus.textContent = 'Trạng thái: Hệ thống hoạt động bình thường.';
+            diagramStatus.classList.remove('text-red-600');
+            diagramStatus.classList.add('text-green-600');
+            fixBtn.classList.add('hidden');
+            localDatafile.removeAttribute('draggable');
+        }
+
+        function simulateErrorState() {
+            localDatafile.style.opacity = '1';
+            localDatafile.style.transform = 'translateY(0)';
+            setTimeout(() => { conn1Local.style.opacity = '1'; }, 200);
+            setTimeout(() => {
+                conn2Local.style.opacity = '1';
+                errorSymbol.style.opacity = '1';
+                node2Rect.style.stroke = '#ef4444';
+                node2Rect.style.filter = 'url(#glow)';
+            }, 500);
+            diagramStatus.textContent = 'Sự cố: Node 2 không thể truy cập datafile cục bộ của Node 1!';
+            diagramStatus.classList.remove('text-green-600');
+            diagramStatus.classList.add('text-red-600');
+            fixBtn.classList.remove('hidden');
+            // Enable drag to fix
+            localDatafile.setAttribute('draggable', 'true');
+            localDatafile.addEventListener('dragstart', dragStart);
+            asmStorage.addEventListener('dragover', dragOver);
+            asmStorage.addEventListener('drop', dropFix);
+        }
+
+        // Drag and Drop to "fix"
+        function dragStart(e) {
+            e.dataTransfer.setData('text/plain', 'local-datafile');
+        }
+        function dragOver(e) {
+            e.preventDefault();
+        }
+        function dropFix(e) {
+            e.preventDefault();
+            localDatafile.style.opacity = '0';
+            conn1Local.style.opacity = '0';
+            conn2Local.style.opacity = '0';
+            errorSymbol.style.opacity = '0';
+            node2Rect.style.stroke = '#4f46e5';
+            node2Rect.style.filter = 'none';
+            diagramStatus.textContent = 'Sửa lỗi thành công: Datafile đã được di chuyển sang ASM!';
+            diagramStatus.classList.remove('text-red-600');
+            diagramStatus.classList.add('text-green-600');
+            fixBtn.classList.add('hidden');
+            triggerConfetti();
+        }
+
+        simulateBtn.addEventListener('click', simulateErrorState);
+        resetBtn.addEventListener('click', resetToNormalState);
+        fixBtn.addEventListener('click', () => alert('Kéo datafile từ Local FS sang ASM Storage để sửa!'));
+
+        // --- New: Toggle Detail for Consequences ---
+        function toggleDetail(id) {
+            const detail = document.getElementById(`detail-${id}`);
+            detail.classList.toggle('open');
+            // Trigger confetti if all open for fun
+            if (document.querySelectorAll('.detail-expand.open').length === 4) triggerConfetti();
+        }
+
+        // --- Consequences Modal Logic ---
+        const modal = document.getElementById('consequence-modal');
+        const modalTitle = document.getElementById('modal-title');
+        const modalContent = document.getElementById('modal-content');
+        const modalDetails = document.getElementById('modal-details');
+        const consequencesData = {
+            1: { title: "Không đồng bộ I/O", content: "Vì datafile chỉ tồn tại trên hệ thống file cục bộ của Node 1, các instance khác (như trên Node 2) không thể tìm thấy hoặc khóa file này. Đây là nguyên nhân gốc rễ của mọi vấn đề.", details: "Alert log trên Node 2 sẽ báo:<br><span class='text-red-500'>> ORA-01157: cannot identify/lock data file...</span><br><span class='text-red-500'>> ORA-01110: data file 25: '/u01/datafile/new.dbf'</span>" },
+            2: { title: "Khoá/treo giao dịch", content: "Bất kỳ phiên làm việc (session) nào cố gắng truy cập vào các đối tượng (bảng, index) nằm trong tablespace chứa datafile bị lỗi sẽ bị treo. Hệ thống không thể đọc/ghi vào một file mà nó không thấy.", details: "Người dùng sẽ thấy ứng dụng bị treo. DBA có thể thấy lỗi:<br><span class='text-orange-500'>> ORA-00376: file 25 cannot be read at this time</span>" },
+            3: { title: "Mất khả năng Recovery", content: "Nếu datafile này vẫn tiếp tục nhận dữ liệu ghi từ Node 1, kho lưu trữ ARCHIVELOG sẽ không đồng nhất. Quá trình recovery hoặc standby apply trên các nút khác hoặc trên standby database sẽ thất bại.", details: "MRP (Managed Recovery Process) trên Standby DB sẽ dừng với lỗi không tìm thấy file." },
+            4: { title: "Nguy cơ Outage", content: "Một lỗi 'typo' tưởng chừng đơn giản có thể leo thang thành sự cố nghiêm trọng. Nếu không được phát hiện sớm, nó có thể gây gián đoạn toàn bộ dịch vụ của cụm RAC trong nhiều giờ để khắc phục.", details: "Thực tế đã ghi nhận nhiều trường hợp downtime hàng giờ chỉ vì lỗi này." }
+        };
+        function showConsequence(id) {
+            const data = consequencesData[id];
+            modalTitle.textContent = data.title;
+            modalContent.textContent = data.content;
+            modalDetails.innerHTML = data.details;
+            modal.classList.remove('hidden');
+        }
+        function closeModal() { modal.classList.add('hidden'); }
+
+        // --- Detection Simulation Logic with New OS Check ---
+        function runQuerySimulation() {
+            const resultDiv = document.getElementById('query-result');
+            resultDiv.classList.remove('hidden');
+        }
+        function tailLogSimulation() {
+            const logViewer = document.getElementById('log-viewer');
+            logViewer.innerHTML = '';
+            const lines = [
+                { text: "Errors in file /u01/app/oracle/diag/rdbms/db/inst2/trace/inst2_ora_12345.trc:", color: "text-gray-400" },
+                { text: "ORA-01157: cannot identify/lock data file 25 - see DBWR trace file", color: "text-red-500 font-bold" },
+                { text: "ORA-01110: data file 25: '/u01/datafile/new.dbf'", color: "text-red-500 font-bold" },
+                { text: "ORA-27041: unable to open file", color: "text-yellow-400" },
+                { text: "Linux-x86_64 Error: 2: No such file or directory", color: "text-yellow-400" }
+            ];
+            lines.forEach((line, index) => {
+                setTimeout(() => {
+                    const p = document.createElement('p');
+                    p.innerHTML = line.text;
+                    p.className = `log-line ${line.color}`;
+                    p.style.animationDelay = `${index * 0.2}s`;
+                    logViewer.appendChild(p);
+                    logViewer.scrollTop = logViewer.scrollHeight;
+                }, index * 300);
+            });
+        }
+        function osCheckSimulation() {
+            const osResult = document.getElementById('os-result');
+            osResult.classList.remove('hidden');
+            osResult.classList.add('animate-pulse');
+            setTimeout(() => osResult.classList.remove('animate-pulse'), 2000);
+        }
+
+        // --- Tabs Logic ---
+        const tab12c = document.getElementById('tab-12c'), tabPre12c = document.getElementById('tab-pre12c');
+        const content12c = document.getElementById('content-12c'), contentPre12c = document.getElementById('content-pre12c');
+        tab12c.addEventListener('click', () => {
+            tab12c.classList.replace('tab-inactive', 'tab-active');
+            tabPre12c.classList.replace('tab-active', 'tab-inactive');
+            content12c.classList.remove('hidden');
+            contentPre12c.classList.add('hidden');
+        });
+        tabPre12c.addEventListener('click', () => {
+            tabPre12c.classList.replace('tab-inactive', 'tab-active');
+            tab12c.classList.replace('tab-active', 'tab-inactive');
+            contentPre12c.classList.remove('hidden');
+            content12c.classList.add('hidden');
+        });
+
+        // --- Interactive Offline Steps with More Details ---
+        const stepsContainer = document.getElementById('offline-steps');
+        const offlineSteps = [
+            { name: "Khoá ghi", detail: "`ALTER TABLESPACE tbs_name READ ONLY;` *(hoặc `ALTER DATABASE DATAFILE ... OFFLINE;` nếu tablespace lớn)*. Ngăn ghi mới để tránh corruption." },
+            { name: "Copy file sang ASM", detail: "`asmcmd cp /u01/datafile/foo01.dbf +DATA/DB/`; hoặc RMAN: <br>`BACKUP AS COPY DATAFILE 5 FORMAT '+DATA';` ([DBA Knowledge Base][4]). Backup trước để an toàn." },
+            { name: "Cập nhật control file", detail: "`ALTER DATABASE RENAME FILE '/u01/datafile/foo01.dbf' TO '+DATA/DB/DATAFILE/foo01.dbf';`. Update metadata cho tất cả nodes." },
+            { name: "Recover & mở lại", detail: "`RECOVER DATAFILE 5;` ‑> `ALTER TABLESPACE tbs_name READ WRITE;`. Verify bằng query gv$datafile sau." },
+            { name: "Dọn dẹp", detail: "Xoá file cũ, update backup script. Test failover để confirm." }
+        ];
+        let completedSteps = 0;
+        function renderOfflineSteps() {
+            stepsContainer.innerHTML = '';
+            offlineSteps.forEach((step, index) => {
+                const stepDiv = document.createElement('div');
+                stepDiv.className = 'flex items-center p-3 bg-slate-50 rounded-lg border border-slate-200 transition-all duration-300';
+                stepDiv.innerHTML = `
+                    <div id="status-${index}" class="w-6 h-6 rounded-full border-2 border-slate-400 flex-shrink-0 mr-4 transition-all"></div>
+                    <div class="flex-grow">
+                        <h4 class="font-semibold">${index + 1}. ${step.name}</h4>
+                        <p class="text-sm text-slate-500">${step.detail}</p>
+                    </div>
+                    <button onclick="completeStep(${index})" class="px-3 py-1 text-sm font-semibold bg-slate-200 hover:bg-slate-300 rounded-md">Hoàn tất</button>
+                `;
+                stepsContainer.appendChild(stepDiv);
+            });
+        }
+        function completeStep(index) {
+            const statusCircle = document.getElementById(`status-${index}`);
+            statusCircle.classList.remove('border-slate-400');
+            statusCircle.classList.add('bg-green-500', 'border-green-500');
+            statusCircle.innerHTML = `<i data-lucide="check" class="w-4 h-4 text-white m-auto"></i>`;
+            lucide.createIcons();
+            completedSteps++;
+            if (completedSteps === offlineSteps.length) {
+                triggerConfetti();
+                completedSteps = 0; // Reset for replay
+            }
+        }
+        renderOfflineSteps();
+
+        // --- Copy Code Logic ---
+        function copyCode(button) {
+            const pre = button.nextElementSibling;
+            const text = pre.querySelector('code').innerText;
+            navigator.clipboard.writeText(text).then(() => {
+                const originalIcon = button.innerHTML;
+                button.innerHTML = '<i data-lucide="check" class="w-4 h-4 text-green-500"></i>';
+                lucide.createIcons();
+                setTimeout(() => { button.innerHTML = originalIcon; lucide.createIcons(); }, 2000);
+            });
+        }
+
+        // --- Scroll Fade-in Animation ---
+        const sections = document.querySelectorAll('.section-fade-in');
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                }
+            });
+        }, { threshold: 0.1 });
+        sections.forEach(section => observer.observe(section));
+
+        // --- Animated Pie Chart with Chart.js ---
+        const consequencesCtx = document.getElementById('consequences-chart').getContext('2d');
+        new Chart(consequencesCtx, {
+            type: 'pie',
+            data: {
+                labels: ['Không đồng bộ I/O', 'Khoá/treo giao dịch', 'Mất recover', 'Outage'],
+                datasets: [{ data: [35, 25, 20, 20], backgroundColor: ['#ef4444', '#f59e0b', '#3b82f6', '#ec4899'] }]
+            },
+            options: {
+                responsive: true,
+                animation: { duration: 2000, easing: 'easeOutBounce' },
+                plugins: { legend: { position: 'top' }, tooltip: { enabled: true } }
+            }
+        });
+
+        // --- Animated Bar Chart with Chart.js for Downtime ---
+        const downtimeCtx = document.getElementById('downtime-chart-canvas').getContext('2d');
+        new Chart(downtimeCtx, {
+            type: 'bar',
+            data: {
+                labels: ['Online (12c+)', 'Offline (<12c)'],
+                datasets: [{ label: 'Downtime (phút)', data: [5, 45], backgroundColor: ['#22c55e', '#f59e0b'] }]
+            },
+            options: {
+                responsive: true,
+                animation: { duration: 1500, easing: 'easeInOutQuart' },
+                scales: { y: { beginAtZero: true, title: { display: true, text: 'Phút' } } },
+                plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ~${ctx.raw} phút` } } }
+            }
+        });
+
+        // --- Confetti for Delight ---
+        const confettiCanvas = document.getElementById('confetti-canvas');
+        const confettiCtx = confettiCanvas.getContext('2d');
+        let particles = [];
+        function createParticle() {
+            return {
+                x: Math.random() * window.innerWidth,
+                y: Math.random() * window.innerHeight - window.innerHeight,
+                size: Math.random() * 10 + 5,
+                speed: Math.random() * 5 + 2,
+                color: `hsl(${Math.random() * 360}, 100%, 50%)`
+            };
+        }
+        function animateConfetti() {
+            confettiCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+            particles.forEach(p => {
+                confettiCtx.fillStyle = p.color;
+                confettiCtx.beginPath();
+                confettiCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                confettiCtx.fill();
+                p.y += p.speed;
+                if (p.y > window.innerHeight) p.y = -p.size;
+            });
+            if (particles.length > 0) requestAnimationFrame(animateConfetti);
+        }
+        function triggerConfetti() {
+            particles = Array.from({ length: 200 }, createParticle);
+            confettiCanvas.width = window.innerWidth;
+            confettiCanvas.height = window.innerHeight;
+            animateConfetti();
+            setTimeout(() => particles = [], 5000); // Stop after 5s
+        }
+        window.addEventListener('resize', () => {
+            confettiCanvas.width = window.innerWidth;
+            confettiCanvas.height = window.innerHeight;
+        });
+
+        // --- Quiz Interaction ---
+        function answerQuiz(choice) {
+            const result = document.getElementById('quiz-result');
+            result.classList.remove('hidden', 'text-red-600', 'text-green-600');
+            if (choice === 2) {
+                result.textContent = 'Đúng rồi! Phát hiện sớm là chìa khóa. 🎉';
+                result.classList.add('text-green-600');
+                triggerConfetti();
+            } else {
+                result.textContent = 'Sai rồi! Hãy thử lại. (Gợi ý: Bắt đầu từ phát hiện.)';
+                result.classList.add('text-red-600');
+            }
+        }
+    </script>
+</body>
+</html>
